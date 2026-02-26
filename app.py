@@ -1,33 +1,34 @@
 import streamlit as st
 import google.generativeai as genai
 from PyPDF2 import PdfReader
-import time
 
-# --- PDF READING CAPABILITY ---
-def extract_text(files):
+# --- PERSISTENT KNOWLEDGE CACHING ---
+# This decorator tells Streamlit to keep this data in memory even if the page refreshes
+@st.cache_resource(show_spinner="Loading EGCSE Knowledge Base...")
+def process_knowledge_base(files):
     text_content = ""
+    if not files:
+        return ""
     for file in files:
         try:
             if file.type == "application/pdf":
                 reader = PdfReader(file)
-                text_content += f"\n--- Start of Document: {file.name} ---\n"
+                text_content += f"\n--- {file.name} ---\n"
                 for page in reader.pages:
                     text_content += page.extract_text() + "\n"
             else:
-                text_content += f"\n--- Start of Document: {file.name} ---\n"
+                text_content += f"\n--- {file.name} ---\n"
                 text_content += file.read().decode("utf-8")
         except Exception as e:
-            text_content += f"\n(Could not read {file.name}: {str(e)})\n"
+            text_content += f"\n(Error reading {file.name})\n"
     return text_content
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EGCSE Physical Science Tutor", page_icon="🔬", layout="wide")
 
-# Initialize State
+# Initialize Chat History (This stays for the current tab session)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if "knowledge_base" not in st.session_state:
-    st.session_state.knowledge_base = ""
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -37,41 +38,38 @@ with st.sidebar:
         api_key = st.text_input("Enter Gemini API Key:", type="password")
     
     st.markdown("---")
-    st.subheader("📚 Knowledge Base")
-    st.write("Current Memory Size: ", len(st.session_state.knowledge_base), " characters.")
-    uploaded_files = st.file_uploader("Upload EGCSE Syllabuses/Reports", accept_multiple_files=True, type=['pdf', 'txt'])
+    st.subheader("📚 Upload Materials")
+    uploaded_files = st.file_uploader("Upload EGCSE PDFs", accept_multiple_files=True, type=['pdf', 'txt'])
     
-    if st.button("Process Documents"):
+    # Store the processed text in a global cache
+    if st.button("Save to Bot Memory"):
         if not api_key:
-            st.error("Please provide an API Key.")
+            st.error("Missing API Key")
         else:
-            with st.spinner("Reading EGCSE materials..."):
-                st.session_state.knowledge_base = extract_text(uploaded_files)
-                st.success("Knowledge Base Updated!")
+            knowledge_text = process_knowledge_base(uploaded_files)
+            st.session_state['kb_text'] = knowledge_text
+            st.success("Documents locked into memory!")
+
+# Retrieve the knowledge from state or cache
+knowledge_base = st.session_state.get('kb_text', "")
 
 # --- MAIN UI ---
 st.title("🔬 EGCSE Physical Science AI Tutor")
-st.caption("Official Tutor for Eswatini Form 5 Students (Subject 6888)")
-
-MODEL_NAME = "gemini-1.5-flash"
+st.caption("Eswatini Form 5 Study Tool (Subject 6888)")
 
 SYSTEM_PROMPT = f"""
 You are an expert Physical Science Teacher for the EGCSE (Eswatini) syllabus.
-You have access to the following ECESWA materials:
-{st.session_state.knowledge_base}
+Knowledge Base Content:
+{knowledge_base}
 
-INSTRUCTIONS:
-1. Use SI units and scientific terminology required by ECESWA.
-2. If the user asks about examiner reports, reference common mistakes like 'failing to use a ruler' or 'mixing up mass and weight'.
-3. Always show steps for Physics calculations (e.g., Formula -> Substitution -> Answer with Units).
-4. Be encouraging to the Form 5 students.
+Always use step-by-step Physics logic and ECESWA terminology.
 """
 
 for message in st.session_state.chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask a study question..."):
+if prompt := st.chat_input("Ask about the syllabus or a past paper..."):
     if not api_key:
         st.error("Please enter the API Key in the sidebar.")
     else:
@@ -82,14 +80,10 @@ if prompt := st.chat_input("Ask a study question..."):
         with st.chat_message("assistant"):
             try:
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(model_name=MODEL_NAME, system_instruction=SYSTEM_PROMPT)
+                model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=SYSTEM_PROMPT)
                 response = model.generate_content(prompt)
                 st.markdown(response.text)
                 st.session_state.chat_history.append({"role": "assistant", "content": response.text})
             except Exception as e:
                 st.error(f"Error: {str(e)}")
-
-st.markdown("---")
-st.info("Tip: Upload your Examiner Report PDF to get specific EGCSE exam tips!")
-
 
