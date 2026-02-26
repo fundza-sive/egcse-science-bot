@@ -1,2 +1,6 @@
 streamlit
 google-generativeai
+
+Once you save the `app.py` on GitHub, your Streamlit app will restart. When you refresh the page, the "404 Error" will be gone!
+
+**Teacher's Tip:** To get the absolute best results with those 15 documents, try to upload them as `.txt` files if possible, or simple PDFs. Gemini 1.5 Flash is excellent at scanning through them!
