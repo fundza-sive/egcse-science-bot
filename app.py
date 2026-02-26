@@ -3,7 +3,6 @@ import google.generativeai as genai
 from PyPDF2 import PdfReader
 
 # --- PERSISTENT KNOWLEDGE CACHING ---
-# This decorator tells Streamlit to keep this data in memory even if the page refreshes
 @st.cache_resource(show_spinner="Loading EGCSE Knowledge Base...")
 def process_knowledge_base(files):
     text_content = ""
@@ -26,13 +25,13 @@ def process_knowledge_base(files):
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EGCSE Physical Science Tutor", page_icon="🔬", layout="wide")
 
-# Initialize Chat History (This stays for the current tab session)
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Teacher Dashboard")
+    # Check secrets first, then input
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
         api_key = st.text_input("Enter Gemini API Key:", type="password")
@@ -41,7 +40,6 @@ with st.sidebar:
     st.subheader("📚 Upload Materials")
     uploaded_files = st.file_uploader("Upload EGCSE PDFs", accept_multiple_files=True, type=['pdf', 'txt'])
     
-    # Store the processed text in a global cache
     if st.button("Save to Bot Memory"):
         if not api_key:
             st.error("Missing API Key")
@@ -50,13 +48,13 @@ with st.sidebar:
             st.session_state['kb_text'] = knowledge_text
             st.success("Documents locked into memory!")
 
-# Retrieve the knowledge from state or cache
 knowledge_base = st.session_state.get('kb_text', "")
 
 # --- MAIN UI ---
 st.title("🔬 EGCSE Physical Science AI Tutor")
 st.caption("Eswatini Form 5 Study Tool (Subject 6888)")
 
+# SYSTEM PROMPT
 SYSTEM_PROMPT = f"""
 You are an expert Physical Science Teacher for the EGCSE (Eswatini) syllabus.
 Knowledge Base Content:
@@ -65,6 +63,7 @@ Knowledge Base Content:
 Always use step-by-step Physics logic and ECESWA terminology.
 """
 
+# Display Chat History
 for message in st.session_state.chat_history:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
@@ -80,10 +79,23 @@ if prompt := st.chat_input("Ask about the syllabus or a past paper..."):
         with st.chat_message("assistant"):
             try:
                 genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(model_name="gemini-1.5-flash", system_instruction=SYSTEM_PROMPT)
-                response = model.generate_content(prompt)
+                # FIXED MODEL NAME: Removed 'v1beta' pathing dependency
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                
+                # Using the standard generation method
+                response = model.generate_content([SYSTEM_PROMPT, prompt])
+                
                 st.markdown(response.text)
                 st.session_state.chat_history.append({"role": "assistant", "content": response.text})
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                # User friendly error for rate limits or key issues
+                if "429" in str(e):
+                    st.error("The bot is a bit overwhelmed with requests. Please wait 10 seconds.")
+                elif "400" in str(e):
+                    st.error("Check if your API Key is valid.")
+                else:
+                    st.error(f"System Note: {str(e)}")
+
+st.markdown("---")
+st.info("Form 5 Students: Ask for a summary of a specific topic from your syllabus!")
 
